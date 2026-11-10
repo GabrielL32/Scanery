@@ -27,6 +27,36 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
+  void _showScanErrorSnackBar(dynamic error) {
+    final errorStr = error.toString().toLowerCase();
+    final String message = (errorStr.contains('cancel') || errorStr.contains('canell'))
+        ? 'Error en el escaneo, operacion cancelada'
+        : 'Error en el escaneo: $error';
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          message,
+          style: const TextStyle(fontSize: 13),
+        ),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+        dismissDirection: DismissDirection.horizontal,
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        action: SnackBarAction(
+          label: '✕',
+          textColor: Colors.white,
+          onPressed: () {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          },
+        ),
+      ),
+    );
+  }
+
   Future<void> _startScanWithMlKit() async {
     setState(() => _isProcessing = true);
     try {
@@ -46,15 +76,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error al iniciar el escaneo: $e'),
-            action: SnackBarAction(
-              label: 'Usar Galería',
-              onPressed: _importFromGallery,
-            ),
-          ),
-        );
+        _showScanErrorSnackBar(e);
       }
     } finally {
       if (mounted) {

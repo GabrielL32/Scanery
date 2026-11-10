@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:scanery/core/theme/theme_provider.dart';
 import 'package:scanery/data/models/scanned_document.dart';
 import 'package:scanery/data/models/scanned_page.dart';
+import 'package:scanery/data/services/image_processing_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -13,12 +14,19 @@ void main() {
   });
 
   group('ScannedDocument and ScannedPage Models', () {
-    test('Should serialize and deserialize ScannedDocument correctly', () {
+    test('Should serialize and deserialize ScannedDocument and ScannedPage edits correctly', () {
       final now = DateTime.now();
       final page1 = ScannedPage(
         id: 'p1',
-        imagePath: '/mock/path/p1.jpg',
+        imagePath: '/mock/path/edited_p1.jpg',
+        originalImagePath: '/mock/path/p1.jpg',
         rotationAngle: 90,
+        filter: PageFilter.darkInk,
+        contrastLevel: 1.4,
+        cropLeft: 0.05,
+        cropTop: 0.05,
+        cropRight: 0.95,
+        cropBottom: 0.95,
       );
       final page2 = ScannedPage(
         id: 'p2',
@@ -36,7 +44,11 @@ void main() {
       );
 
       expect(doc.pageCount, 2);
-      expect(doc.thumbnailPath, '/mock/path/p1.jpg');
+      expect(doc.thumbnailPath, '/mock/path/edited_p1.jpg');
+      expect(page1.isCropped, isTrue);
+      expect(page1.hasEdits, isTrue);
+      expect(page2.isCropped, isFalse);
+      expect(page2.hasEdits, isFalse);
 
       final json = doc.toJson();
       final fromJson = ScannedDocument.fromJson(json);
@@ -45,29 +57,21 @@ void main() {
       expect(fromJson.title, 'Mi Documento');
       expect(fromJson.pageCount, 2);
       expect(fromJson.pages[0].rotationAngle, 90);
+      expect(fromJson.pages[0].filter, PageFilter.darkInk);
+      expect(fromJson.pages[0].contrastLevel, 1.4);
+      expect(fromJson.pages[0].originalImagePath, '/mock/path/p1.jpg');
+      expect(fromJson.pages[0].cropLeft, 0.05);
       expect(fromJson.pages[1].rotationAngle, 0);
+      expect(fromJson.pages[1].filter, PageFilter.original);
       expect(fromJson.pdfPath, '/mock/path/doc.pdf');
       expect(fromJson.fileSizeBytes, 2048);
     });
 
-    test('Page rotation angles should cycle correctly', () {
-      final page = ScannedPage(id: 'p1', imagePath: '/path.jpg');
-      expect(page.rotationAngle, 0);
-
-      final rotated90 = page.copyWith(
-        rotationAngle: (page.rotationAngle + 90) % 360,
-      );
-      expect(rotated90.rotationAngle, 90);
-
-      final rotated180 = rotated90.copyWith(
-        rotationAngle: (rotated90.rotationAngle + 90) % 360,
-      );
-      expect(rotated180.rotationAngle, 180);
-
-      final rotated360 = rotated180
-          .copyWith(rotationAngle: (180 + 90) % 360)
-          .copyWith(rotationAngle: (270 + 90) % 360);
-      expect(rotated360.rotationAngle, 0);
+    test('ImageProcessingService should generate valid 20-element color matrices', () {
+      for (final filter in PageFilter.values) {
+        final matrix = ImageProcessingService.buildColorMatrix(filter, 1.2);
+        expect(matrix.length, 20);
+      }
     });
   });
 

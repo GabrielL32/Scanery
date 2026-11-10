@@ -7,6 +7,7 @@ import '../../../data/models/scanned_page.dart';
 import '../../../data/services/scanner_service.dart';
 import '../../../data/services/storage_service.dart';
 import '../../widgets/export_dialog.dart';
+import 'page_editor_screen.dart';
 
 class DocumentEditorScreen extends StatefulWidget {
   final ScannedDocument document;
@@ -37,13 +38,24 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
     await storageService.updateDocument(newDoc);
   }
 
-  void _rotatePage(int index) {
-    final pages = List<ScannedPage>.from(_document.pages);
-    final currentPage = pages[index];
-    final newAngle = (currentPage.rotationAngle + 90) % 360;
-    pages[index] = currentPage.copyWith(rotationAngle: newAngle);
+  Future<void> _openPageEditor(int index) async {
+    final currentPage = _document.pages[index];
+    final updatedPage = await Navigator.of(context).push<ScannedPage>(
+      MaterialPageRoute(
+        builder: (_) => PageEditorScreen(
+          page: currentPage,
+          pageNumber: index + 1,
+        ),
+      ),
+    );
 
-    _updateAndSave(_document.copyWith(pages: pages));
+    if (updatedPage != null && mounted) {
+      // Limpiar caché de la imagen por si la ruta se reutilizó
+      FileImage(File(updatedPage.imagePath)).evict();
+      final pages = List<ScannedPage>.from(_document.pages);
+      pages[index] = updatedPage;
+      await _updateAndSave(_document.copyWith(pages: pages));
+    }
   }
 
   void _deletePage(int index) {
@@ -95,6 +107,7 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
           ScannedPage(
             id: const Uuid().v4(),
             imagePath: persistedPath,
+            originalImagePath: persistedPath,
           ),
         );
       }
@@ -109,6 +122,36 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
+  }
+
+  void _showScanErrorSnackBar(dynamic error) {
+    final errorStr = error.toString().toLowerCase();
+    final String message = (errorStr.contains('cancel') || errorStr.contains('canell'))
+        ? 'Error en el escaneo, operacion cancelada'
+        : 'Error en el escaneo: $error';
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          message,
+          style: const TextStyle(fontSize: 13),
+        ),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+        dismissDirection: DismissDirection.horizontal,
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        action: SnackBarAction(
+          label: '✕',
+          textColor: Colors.white,
+          onPressed: () {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> _addPagesFromScanner() async {
@@ -127,6 +170,7 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
           ScannedPage(
             id: const Uuid().v4(),
             imagePath: persistedPath,
+            originalImagePath: persistedPath,
           ),
         );
       }
@@ -134,9 +178,7 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
       await _updateAndSave(_document.copyWith(pages: newPages));
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al escanear: $e')),
-        );
+        _showScanErrorSnackBar(e);
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -217,13 +259,6 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
             ),
           ),
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.picture_as_pdf),
-            tooltip: 'Exportar a PDF',
-            onPressed: _openExportDialog,
-          ),
-        ],
       ),
       body: _isSaving
           ? const Center(child: CircularProgressIndicator())
@@ -235,10 +270,12 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        '${_document.pageCount} ${_document.pageCount == 1 ? "página" : "páginas"} (Arrastra para reordenar)',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w600,
+                      Flexible(
+                        child: Text(
+                          '${_document.pageCount} ${_document.pageCount == 1 ? "página" : "páginas"} • Toca "Editar" para mejorar letras o recortar',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                       Row(
@@ -275,78 +312,112 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
                       return Card(
                         key: ValueKey(page.id),
                         margin: const EdgeInsets.only(bottom: 12),
-                        child: Padding(
-                          padding: const EdgeInsets.all(8),
-                          child: Row(
-                            children: [
-                              // Handle de reordenación
-                              ReorderableDragStartListener(
-                                index: index,
-                                child: const Padding(
-                                  padding: EdgeInsets.symmetric(horizontal: 8),
-                                  child: Icon(Icons.drag_indicator, color: Colors.grey),
+                        clipBehavior: Clip.antiAlias,
+                        child: InkWell(
+                          onTap: () => _openPageEditor(index),
+                          child: Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: Row(
+                              children: [
+                                // Handle de reordenación
+                                ReorderableDragStartListener(
+                                  index: index,
+                                  child: const Padding(
+                                    padding: EdgeInsets.symmetric(horizontal: 6),
+                                    child: Icon(Icons.drag_indicator, color: Colors.grey),
+                                  ),
                                 ),
-                              ),
 
-                              // Miniatura rotada
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: Container(
-                                  width: 70,
-                                  height: 90,
-                                  color: Colors.black12,
-                                  child: RotatedBox(
-                                    quarterTurns: page.rotationAngle ~/ 90,
-                                    child: Image.file(
-                                      File(page.imagePath),
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (context, error, stackTrace) =>
-                                          const Icon(
-                                        Icons.broken_image,
-                                        color: Colors.grey,
+                                // Miniatura rotada
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Container(
+                                    width: 68,
+                                    height: 88,
+                                    color: Colors.black12,
+                                    child: RotatedBox(
+                                      quarterTurns: ((page.rotationAngle + 45) ~/ 90) % 4,
+                                      child: Transform.rotate(
+                                        angle: (page.rotationAngle - (((page.rotationAngle + 45) ~/ 90) % 4) * 90) *
+                                            3.141592653589793 /
+                                            180.0,
+                                        child: Image.file(
+                                          File(page.imagePath),
+                                          key: ValueKey('${page.imagePath}_${page.filter.name}_${page.contrastLevel}_${page.rotationAngle}'),
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (context, error, stackTrace) =>
+                                              const Icon(
+                                            Icons.broken_image,
+                                            color: Colors.grey,
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ),
-                              ),
 
-                              const SizedBox(width: 16),
+                                const SizedBox(width: 12),
 
-                              // Info de página
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Página ${index + 1}',
-                                      style: theme.textTheme.titleMedium?.copyWith(
-                                        fontWeight: FontWeight.bold,
+                                // Info de página y etiquetas de edición
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Página ${index + 1}',
+                                        style: theme.textTheme.titleMedium?.copyWith(
+                                          fontWeight: FontWeight.bold,
+                                        ),
                                       ),
-                                    ),
-                                    Text(
-                                      'Rotación: ${page.rotationAngle}°',
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: theme.colorScheme.onSurfaceVariant,
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Filtro: ${page.filter.label}',
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          color: page.filter != PageFilter.original
+                                              ? theme.colorScheme.primary
+                                              : theme.colorScheme.onSurfaceVariant,
+                                          fontWeight: page.filter != PageFilter.original
+                                              ? FontWeight.w600
+                                              : FontWeight.normal,
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                      if (page.rotationAngle != 0 || page.isCropped) ...[
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          [
+                                            if (page.rotationAngle != 0)
+                                              'Giro: ${page.rotationAngle}°',
+                                            if (page.isCropped) 'Recortada',
+                                          ].join(' • '),
+                                          style: theme.textTheme.labelSmall?.copyWith(
+                                            color: theme.colorScheme.secondary,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
                                 ),
-                              ),
 
-                              // Botón Rotar
-                              IconButton(
-                                icon: const Icon(Icons.rotate_right),
-                                tooltip: 'Rotar 90°',
-                                onPressed: () => _rotatePage(index),
-                              ),
+                                // Botón para entrar a inspeccionar y editar la página (solo icono de ajustes)
+                                IconButton.filledTonal(
+                                  onPressed: () => _openPageEditor(index),
+                                  icon: const Icon(Icons.tune, size: 20),
+                                  tooltip: 'Ajustes de página',
+                                ),
 
-                              // Botón Eliminar
-                              IconButton(
-                                icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                                tooltip: 'Eliminar página',
-                                onPressed: () => _deletePage(index),
-                              ),
-                            ],
+                                const SizedBox(width: 4),
+
+                                // Única opción externa: Borrar página
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.delete_outline,
+                                    color: Colors.redAccent,
+                                  ),
+                                  tooltip: 'Eliminar página',
+                                  onPressed: () => _deletePage(index),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       );
