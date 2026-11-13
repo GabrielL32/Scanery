@@ -38,6 +38,8 @@ class _HomeScreenState extends State<HomeScreen> {
       SnackBar(
         content: Text(
           message,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontSize: 13),
         ),
         behavior: SnackBarBehavior.floating,
