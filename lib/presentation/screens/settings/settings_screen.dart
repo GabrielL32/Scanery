@@ -114,7 +114,7 @@ class SettingsScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Versión 1.0.0',
+                    'Versión 1.0.0 - Creado por: Gabriel López',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
@@ -134,4 +134,3 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 }
-
